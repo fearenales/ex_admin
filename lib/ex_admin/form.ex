@@ -869,7 +869,7 @@ defmodule ExAdmin.Form do
     Xain.textarea(value, options)
   end
 
-  def build_control({:array, _} = type, resource, opts, model_name, field_name, ext_name, errors) do
+  def build_control({:array, _} = type, resource, opts, model_name, field_name, ext_name) do
     value = Map.get(resource, field_name, []) |> escape_value
     value = cond do
       is_list(value)   -> value |> Enum.join(", ")
@@ -886,7 +886,6 @@ defmodule ExAdmin.Form do
     |> Map.delete(:display)
     |> Map.to_list
     |> Xain.input
-    build_errors(errors)
   end
 
   def build_control(type, resource, opts, model_name, field_name, ext_name) do
