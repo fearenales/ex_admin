@@ -54,6 +54,7 @@ defmodule ExAdmin.Mixfile do
       {:ex_doc, "~> 0.11", only: :dev},
       {:earmark, "~> 0.1", only: :dev},
       {:ex_queb, "~> 0.1"},
+      {:exjsx, "~> 3.2.0"}
     ]
   end
 

@@ -166,6 +166,7 @@ defmodule ExAdmin.Form do
   require IEx
   import ExAdmin.Theme.Helpers
   alias ExAdmin.Schema
+  require JSX
 
   import Kernel, except: [div: 2]
   use Xain
@@ -870,7 +871,15 @@ defmodule ExAdmin.Form do
   end
 
   def build_control(:map, resource, opts, model_name, field_name, ext_name) do
-    build_control(:text, resource, opts, model_name, field_name, ext_name)
+    value = with {:ok, value} <- Map.get(resource, field_name, "") |> JSX.encode,
+                 {:ok, value} <- value |> JSX.prettify, do: value |> escape_value
+    options = opts
+    |> Map.put(:class, "form-control")
+    |> Map.put_new(:name, "#{model_name}[#{field_name}]")
+    |> Map.put_new(:id, ext_name)
+    |> Map.delete(:display)
+    |> Map.to_list
+    Xain.textarea(value, options)
   end
 
   def build_control({:array, _} = type, resource, opts, model_name, field_name, ext_name) do
