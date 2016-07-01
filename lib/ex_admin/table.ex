@@ -45,7 +45,7 @@ defmodule ExAdmin.Table do
   def field_header({field_name, _opts}), do: field_header(field_name)
   def field_header(field_name), do: th(humanize field_name)
 
-  def panel(conn, schema) do
+  def panel(conn, schema, _opts \\ []) do
     theme_module(conn, Table).theme_panel(conn, schema)
   end
 
@@ -56,7 +56,6 @@ defmodule ExAdmin.Table do
       table_head(columns)
       tbody do
         model_name = get_resource_model resources
-
         Enum.with_index(resources)
         |> Enum.map(fn({resource, inx}) ->
           odd_even = if Integer.is_even(inx), do: "even", else: "odd"
@@ -79,14 +78,12 @@ defmodule ExAdmin.Table do
     do_panel(conn, tail, table_opts, output)
   end
   def do_panel(conn, [{:contents, %{contents: content}} | tail], table_opts, output) do
-    output = [div do
+    output = [
       case content do
         {:safe, _} -> Phoenix.HTML.safe_to_string(content)
         content -> content
       end
-      |> String.replace("\n", "")
-      |> Xain.raw
-    end | output]
+      |> Xain.raw | output]
     do_panel(conn, tail, table_opts, output)
   end
   # skip unknown blocks

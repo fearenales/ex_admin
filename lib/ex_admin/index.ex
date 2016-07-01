@@ -93,12 +93,14 @@ defmodule ExAdmin.Index do
 
       index as: :grid, default: true do
         cell fn(p) ->
-          div do
-            a href: admin_resource_path(p, :show) do
-              img(src: ExAdminDemo.Image.url({p.image_file_name, p}, :thumb), height: 100)
+          markup do
+            div do
+              a href: admin_resource_path(p, :show) do
+                img(src: ExAdminDemo.Image.url({p.image_file_name, p}, :thumb), height: 100)
+              end
             end
+            a truncate(p.title), href: admin_resource_path(p, :show)
           end
-          a truncate(p.title), href: admin_resource_path(p, :show)
         end
       end
 
@@ -107,7 +109,6 @@ defmodule ExAdmin.Index do
   require Logger
   require Integer
   import ExAdmin.Utils
-  import ExAdmin.DslUtils
   import ExAdmin.Helpers
   import Kernel, except: [div: 2, to_string: 1]
   use Xain
@@ -147,7 +148,7 @@ defmodule ExAdmin.Index do
         |> Map.put(:selectable_column, selectable)
         |> Map.put(:actions, var!(actions, ExAdmin.Index))
 
-        markup do
+        markup safe: true do
           ExAdmin.Index.render_index_pages(var!(conn), page, scope_counts, var!(cell, ExAdmin.Index), opts)
         end
       end
@@ -216,11 +217,13 @@ defmodule ExAdmin.Index do
         columns = case defn.index_filters do
           [] -> []
           [false] -> []
-          [f] -> f
+          [_] ->
+            ExAdmin.Filter.fields(conn.assigns.defn)
+            |> Keyword.keys
         end
         |> case do
           [] ->
-            columns = defn.resource_model.__schema__(:fields)
+            defn.resource_model.__schema__(:fields)
             |> Enum.filter(&(not &1 in [:inserted_at, :updated_at]))
           other ->
             other
@@ -238,7 +241,7 @@ defmodule ExAdmin.Index do
         |> Map.put(:selectable_column, true)
         |> Map.put(:actions, [])
 
-        markup do
+        markup safe: true do
           ExAdmin.Index.render_index_pages(var!(conn), page, scope_counts, nil, opts)
         end
     end
@@ -373,10 +376,9 @@ defmodule ExAdmin.Index do
   end
 
   @doc false
-  def get_authorized_links(conn, resource_model) do
+  def get_authorized_links(conn, _resource_model) do
     Enum.reduce [:show, :edit, :destroy], [], fn(item, acc) ->
-      if ExAdmin.Utils.authorized_action?(conn, item, resource_model),
-        do: [item | acc], else: acc
+      if ExAdmin.Utils.authorized_action?(conn, item), do: [item | acc], else: acc
     end
   end
 end

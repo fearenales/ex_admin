@@ -33,6 +33,7 @@ defmodule TestExAdmin.ExAdmin.User do
   use ExAdmin.Register
 
   register_resource TestExAdmin.User do
+    filter only: [:name, :email]
     show user do
       panel "No IDs" do
         markup_contents do
@@ -52,11 +53,23 @@ defmodule TestExAdmin.ExAdmin.User do
         end
       end
     end
+    form user do
+      inputs "User Details" do
+        input user, :name
+        input user, :email
+      end
+
+      inputs "Roles" do
+        inputs :roles, as: :check_boxes, collection: TestExAdmin.Role.all
+      end
+
+    end
     query do
-      %{all: [preload: [:noids]]}
+      %{all: [preload: [:noids, :roles]]}
     end
   end
 end
+
 defmodule TestExAdmin.ExAdmin.Product do
   use ExAdmin.Register
   alias TestExAdmin.Repo
@@ -65,16 +78,90 @@ defmodule TestExAdmin.ExAdmin.Product do
   register_resource TestExAdmin.Product do
     controller do
       after_filter :do_after, only: [:create, :update]
+      after_filter :after2, only: [:update]
+      before_filter :before_both, only: [:create, :update]
+      before_filter :before_update, only: [:update]
 
       def do_after(conn, params, resource, :create) do
         user = Repo.all(User) |> hd
         resource = Product.changeset(resource, %{user_id: user.id})
         |> Repo.update!
-        {Plug.Conn.assign(conn, :product, resource), params, resource}
+        conn = Plug.Conn.assign(conn, :product, resource)
+        |> Plug.Conn.assign(:after_create, :yes)
+        {conn, params, resource}
       end
       def do_after(conn, _params, _resource, :update) do
         Plug.Conn.assign(conn, :answer, 42)
+        |> Plug.Conn.assign(:after_update, :yes)
+      end
+
+      def after2(conn, _params, _resource, _) do
+        Plug.Conn.assign(conn, :after_update2, :yes)
+      end
+
+      def before_both(conn, _) do
+        Plug.Conn.assign(conn, :before_both, :yes)
+      end
+      def before_update(conn, _) do
+        Plug.Conn.assign(conn, :before_update, :yes)
       end
     end
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.Simple do
+  use ExAdmin.Register
+
+  register_resource TestExAdmin.Simple do
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.UUIDSchema do
+  use ExAdmin.Register
+
+  register_resource TestExAdmin.UUIDSchema do
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.Noprimary do
+  use ExAdmin.Register
+
+  register_resource TestExAdmin.Noprimary do
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.Contact do
+  use ExAdmin.Register
+
+  register_resource TestExAdmin.Contact do
+
+    form contact do
+      inputs do
+        input contact, :first_name
+        input contact, :last_name
+      end
+
+      inputs "Phone Numbers" do
+        has_many contact, :phone_numbers, fn(p) ->
+          input p, :label, collection: TestExAdmin.PhoneNumber.labels
+          input p, :number
+        end
+      end
+    end
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.ModelDisplayName do
+  use ExAdmin.Register
+  register_resource TestExAdmin.ModelDisplayName do
+  end
+end
+
+defmodule TestExAdmin.ExAdmin.DefnDisplayName do
+  use ExAdmin.Register
+  register_resource TestExAdmin.DefnDisplayName  do
+  end
+  def display_name(resource) do
+    resource.second
   end
 end

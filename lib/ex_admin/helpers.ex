@@ -61,7 +61,7 @@ defmodule ExAdmin.Helpers do
   end
 
   defp build_content_link(link?, conn, resource, contents) do
-    if link? && ExAdmin.Utils.authorized_action?(conn, :show, resource.__struct__) do
+    if link? && ExAdmin.Utils.authorized_action?(conn, :show) do
       path = admin_resource_path resource, :show
       "<a href='#{path}'>#{contents}</a>"
     else
@@ -163,8 +163,10 @@ defmodule ExAdmin.Helpers do
   end
   def build_single_field(resource, conn, f_name, %{fun: fun} = opts) do
     markup :nested do
-      res = fun.(resource)
-      if is_binary(res), do: Xain.text(res), else: res
+      case fun.(resource) do
+        [{_, list}] -> list
+        other -> other
+      end
     end
     |> build_link_for(conn, opts, resource, f_name)
   end
@@ -248,6 +250,9 @@ defmodule ExAdmin.Helpers do
   def display_name(resource) do
     defn = ExAdmin.get_registered(resource.__struct__)
     cond do
+      is_nil(defn) ->
+        get_name_column_field(resource)
+
       function_exported?(defn.__struct__, :display_name, 1) ->
         apply(defn.__struct__, :display_name, [resource])
 
@@ -256,12 +261,18 @@ defmodule ExAdmin.Helpers do
 
       true ->
         case defn.name_column do
-          nil -> inspect(resource)
+          nil -> get_name_column_field(resource)
           name_field -> resource |> Map.get(name_field) |> to_string
         end
     end
   end
 
+  defp get_name_column_field(resource) do
+    case get_name_field(resource.__struct__) do
+      nil -> inspect resource
+      field -> Map.get(resource, field)
+    end
+  end
 
   def resource_identity(resource, field \\ :name)
   def resource_identity(resource, field) when is_map(resource) do
@@ -314,6 +325,22 @@ defmodule ExAdmin.Helpers do
       {_, val} = List.keyfind acc, key, 0
       List.keyreplace acc, key, 0, {key, val ++ [item]}
     end
+  end
+
+
+  def group_reduce_by_reverse(collection) do
+    empty = Keyword.keys(collection)
+    |> Enum.reduce([], &(Keyword.put(&2, &1, [])))
+
+    Enum.reduce(collection, empty, fn({k,v}, acc) ->
+      Keyword.put acc, k, [v|acc[k]]
+    end)
+  end
+  def group_reduce_by(collection) do
+    group_reduce_by_reverse(collection)
+    |> Enum.reduce([], fn({k,v},acc) ->
+      Keyword.put(acc, k, Enum.reverse(v))
+    end)
   end
 
   def to_class(prefix, field_name),

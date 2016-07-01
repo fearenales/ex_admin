@@ -12,7 +12,7 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
   @doc false
   def build_form(conn, resource, items, params, script_block) do
     mode = if params[:id], do: :edit, else: :new
-    markup do
+    markup safe: true do
       model_name = model_name resource
       action = get_action(resource, mode)
       # scripts = ""
@@ -21,9 +21,18 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
 
         resource = setup_resource(resource, params, model_name)
 
+        {html, scripts_list} =
+          build_main_block(conn, resource, model_name, items)
+          |> Enum.reduce({[], []}, fn({h, o}, {acc_h, acc_o}) ->
+            {[h | acc_h], o ++ acc_o}
+          end)
+        html = Enum.reverse html
+
+        scripts = build_scripts(scripts_list)
         build_hidden_block(conn, mode)
-        scripts = build_main_block(conn, resource, model_name, items)
-        |> build_scripts
+        markup do
+          html
+        end
         build_actions_block(conn, model_name, mode)
       end
       put_script_block(scripts)
@@ -31,25 +40,20 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
     end
   end
 
-  def theme_build_inputs(item, opts, fun) do
-    fieldset(".inputs", opts) do
-      build_fieldset_legend(item[:name])
-      ol do
-        fun.()
-      end
-    end
+  def theme_build_inputs(_item, _opts, fun) do
+    fun.()
   end
 
   def theme_wrap_item(_type, ext_name, label, hidden, ajax, error, contents, as, required) when as in [:check_boxes, :radio] do
     li([class: "#{as} input optional #{error}stringish", id: "#{ext_name}_input"] ++ hidden) do
       fieldset ".choices" do
-        legend ".label" do
+        lbl = legend ".label" do
           label do
             text humanize(label)
             required_abbr required
           end
         end
-        if ajax do
+        res = if ajax do
           div "##{ext_name}-update" do
             if hidden == [] do
               contents.(ext_name)
@@ -58,6 +62,7 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
         else
           contents.(ext_name)
         end
+        [lbl, res]
       end
     end
   end
@@ -66,23 +71,28 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
   def theme_wrap_item(_type, ext_name, label, hidden, ajax, error, contents, _, required) do
     # TODO: Fix this to use the correct type, instead of hard coding string
     li([class: "string input optional #{error}stringish", id: "#{ext_name}_input"] ++ hidden) do
-      if ajax do
-        label(".label", for: ext_name) do
-          text humanize(label)
-          required_abbr required
-        end
-        div "##{ext_name}-update" do
-          if hidden == [] do
-            contents.(ext_name)
+      res2 = if ajax do
+        markup do
+          label(".label", for: ext_name) do
+            text humanize(label)
+            required_abbr required
+          end
+          div "##{ext_name}-update" do
+            res = if hidden == [], do: contents.(ext_name), else: ""
+            res
           end
         end
       else
-        label(".label", for: ext_name) do
-          text humanize(label)
-          required_abbr required
+        markup do
+          label(".label", for: ext_name) do
+            text humanize(label)
+            required_abbr required
+          end
+          res = contents.(ext_name)
+          res
         end
-        contents.(ext_name)
       end
+      res2
     end
   end
 
@@ -121,10 +131,11 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
   end
 
   def build_inputs_has_many(_field_name, _human_label, fun) do
-    li ".input" do
-      res = fun.()
+    {contents, html} = fun.()
+    new_html = li ".input" do
+      html
     end
-    res
+    {contents, new_html}
   end
 
   def has_many_insert_item(html, new_record_name_var) do
@@ -132,8 +143,31 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
       ~s|new Date().getTime())); return false;|
   end
 
-  def form_box(_item, _opts, fun) do
-    fun.()
+  def form_box(item, opts, fun) do
+    {html, changes} = Enum.reduce(fun.(), {"", []}, fn(item, {htmls, chgs}) ->
+      case item do
+        bin when is_binary(bin) -> {htmls <> bin, chgs}
+        {bin, change} -> {htmls <> bin, [change | chgs]}
+      end
+    end)
+    changes = Enum.reverse changes
+    # res = div ".box.box-primary" do
+    #   div ".box-header.with-border" do
+    #     h3 ".box-title" do
+    #       text item[:name]
+    #     end
+    #   end
+    #   div ".box-body" do
+    #     html
+    #   end
+    # end
+    res = fieldset(".inputs", opts) do
+      build_fieldset_legend(item[:name])
+      ol do
+        html
+      end
+    end
+    {res, changes}
   end
 
   # TODO: Refactor some of this back into ExAdmin.Form
@@ -151,7 +185,7 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
       []
     end
 
-    fieldset ".inputs.has_many_fields" do
+    html = fieldset ".inputs.has_many_fields" do
       ol do
         humanize(field_name) |> Inflex.singularize |> h3
 
@@ -205,7 +239,7 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
               end
           end
         end
-        unless res do
+        unless Schema.get_id(res) do
           li do
             a ".button Delete", href: "#",
               onclick: ~S|$(this).closest(\".has_many_fields\").remove(); return false;|
@@ -213,7 +247,7 @@ defmodule ExAdmin.Theme.ActiveAdmin.Form do
         end
       end
     end
-    inx
+    {inx, html}
   end
 
   def theme_button(content, attrs) do

@@ -5,11 +5,11 @@ defmodule TestExAdmin.Migrations do
     create table(:users) do
       add :name, :string
       add :email, :string
+      add :active, :boolean
     end
 
     create table(:roles) do
       add :name, :string
-      timestamps
     end
 
     create table(:users_roles) do
@@ -39,6 +39,36 @@ defmodule TestExAdmin.Migrations do
       add :index, :integer
       add :name, :string
       add :description, :string
+      timestamps
+    end
+
+    create table(:simple) do
+      add :name, :string
+      add :description, :string
+    end
+
+    create table(:contacts) do
+      add :first_name, :string
+      add :last_name, :string
+      timestamps
+    end
+
+    create table(:phone_numbers) do
+      add :number, :string
+      add :label, :string
+      timestamps
+    end
+
+    create table(:contacts_phone_numbers) do
+      add :contact_id, references(:contacts, on_delete: :delete_all)
+      add :phone_number_id, references(:phone_numbers, on_delete: :delete_all)
+    end
+    create index(:contacts_phone_numbers, [:contact_id])
+    create index(:contacts_phone_numbers, [:phone_number_id])
+
+    create table(:uuid_schemas, primary_key: false) do
+      add :key, :uuid, primary_key: true
+      add :name, :string
     end
   end
 end
