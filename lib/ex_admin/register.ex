@@ -176,6 +176,9 @@ defmodule ExAdmin.Register do
         nil -> []
         list -> Enum.reverse list
       end
+      controller_filters = (Module.get_attribute(__MODULE__, :controller_filters) || [])
+      |> ExAdmin.Helpers.group_reduce_by_reverse
+
 
       defstruct controller: @controller,
                 controller_methods: Module.get_attribute(__MODULE__, :controller_methods),
@@ -189,7 +192,7 @@ defmodule ExAdmin.Register do
                 actions: actions,
                 member_actions: Module.get_attribute(__MODULE__, :member_actions),
                 collection_actions: Module.get_attribute(__MODULE__, :collection_actions),
-                controller_filters: Module.get_attribute(__MODULE__, :controller_filters),
+                controller_filters: controller_filters,
                 index_filters: Module.get_attribute(__MODULE__, :index_filters),
                 selectable_column: Module.get_attribute(__MODULE__, :selectable_column),
                 position_column: Module.get_attribute(__MODULE__, :position_column),
@@ -862,8 +865,12 @@ defmodule ExAdmin.Register do
   Only show index columns and filters for the specified fields:
 
       filter [:name, :email, :inserted_at]
-      filter only: [:name, :email, :inserted_at]
-      filter except: [:encrypted_password]
+      filter [:name, :email, :inserted_at, labels: [email: "EMail Address"]]
+      filter only: [:name, :email, :inserted_at], label: [email: "EMail Address"]
+      filter except: [:encrypted_password], labels: [name: "Full Name"]
+
+  Note: Restricting fields with the `filter` macro also removes the field columns
+        from the default index table.
 
   """
   defmacro filter(disable) when disable in [nil, false] do

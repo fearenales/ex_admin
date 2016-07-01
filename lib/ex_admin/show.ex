@@ -30,7 +30,6 @@ defmodule ExAdmin.Show do
         end
 
   """
-  import ExAdmin.DslUtils
   import ExAdmin.Helpers
   import ExAdmin.Repo, only: [repo: 0]
 
@@ -51,8 +50,8 @@ defmodule ExAdmin.Show do
       def show_view(var!(conn), unquote(resource) = var!(resource)) do
         import ExAdmin.Utils
         import ExAdmin.ViewHelpers
-
-        markup do
+        _ = var!(resource)
+        markup safe: true do
           unquote(contents)
         end
       end
@@ -114,13 +113,13 @@ defmodule ExAdmin.Show do
 
   * `contents` - Add HTML to a panel
   """
-  defmacro panel(name \\ "", do: block) do
+  defmacro panel(name \\ "", opts \\ [], do: block) do
     quote do
       var!(elements, ExAdmin.Show) = []
       unquote(block)
       ExAdmin.Table.panel(
         var!(conn),
-        [ {:name, unquote(name)} | var!(elements, ExAdmin.Show) ]
+        [ {:name, unquote(name)}, {:opts, unquote(opts)} | var!(elements, ExAdmin.Show) ], unquote(opts)
       )
     end
   end
@@ -312,25 +311,27 @@ defmodule ExAdmin.Show do
 
   def build_association_filler_form(resource, true = _autocomplete, opts) do
     path = ExAdmin.Utils.admin_association_path(resource, opts[:assoc_name], :add)
-    Xain.form class: "association_filler_form", name: "select_#{opts[:assoc_name]}", method: "post", action: path do
-      Xain.input name: "_csrf_token", value: Plug.CSRFProtection.get_csrf_token, type: "hidden"
-      Xain.input name: "resource_key", value: opts[:resource_key], type: "hidden"
-      Xain.input name: "assoc_key", value: opts[:assoc_key], type: "hidden"
+    markup do
+      Xain.form class: "association_filler_form", name: "select_#{opts[:assoc_name]}", method: "post", action: path do
+        Xain.input name: "_csrf_token", value: Plug.CSRFProtection.get_csrf_token, type: "hidden"
+        Xain.input name: "resource_key", value: opts[:resource_key], type: "hidden"
+        Xain.input name: "assoc_key", value: opts[:assoc_key], type: "hidden"
 
-      Xain.select class: "association_filler", multiple: "multiple", name: "selected_ids[]" do
-        option ""
+        Xain.select class: "association_filler", multiple: "multiple", name: "selected_ids[]" do
+          option ""
+        end
+        Xain.input value: "Save", type: "submit", class: "btn btn-primary", style: "margin-left: 1em;"
       end
-      Xain.input value: "Save", type: "submit", class: "btn btn-primary", style: "margin-left: 1em;"
-    end
 
-    associations_path = ExAdmin.Utils.admin_association_path(resource, opts[:assoc_name])
-    script type: "text/javascript" do
-      text """
-      $(document).ready(function() {
-        ExAdmin.association_filler_opts.ajax.url = "#{associations_path}";
-        $(".association_filler").select2(ExAdmin.association_filler_opts);
-      });
-      """
+      associations_path = ExAdmin.Utils.admin_association_path(resource, opts[:assoc_name])
+      script type: "text/javascript" do
+        text """
+        $(document).ready(function() {
+          ExAdmin.association_filler_opts.ajax.url = "#{associations_path}";
+          $(".association_filler").select2(ExAdmin.association_filler_opts);
+        });
+        """
+      end
     end
   end
 
@@ -358,7 +359,7 @@ defmodule ExAdmin.Show do
 
   @doc false
   def default_show_view(conn, resource) do
-    markup do
+    markup safe: true do
       default_attributes_table conn, resource
     end
   end

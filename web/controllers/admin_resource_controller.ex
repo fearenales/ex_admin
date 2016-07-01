@@ -4,7 +4,8 @@ defmodule ExAdmin.AdminResourceController do
   require Logger
   import ExAdmin.Utils
   import ExAdmin.ParamsToAtoms
-  require IEx
+  import ExAdmin.Utils
+  alias ExAdmin.Authorization
 
   plug :set_theme
   plug :set_layout
@@ -16,12 +17,20 @@ defmodule ExAdmin.AdminResourceController do
     params = filter_params(conn.params)
     defn = get_registered_by_controller_route!(conn, resource)
 
-    conn
-    |> assign(:defn, defn)
-    |> load_resource(action, defn, params[:id])
-    |> handle_plugs(action, defn)
-    |> handle_before_filter(action, defn, params)
-    |> handle_custom_actions(action, defn, params)
+    # IO.puts ".... defn: #{defn.__struct__}, action: #{inspect action}"
+    if authorized_action?(conn, action, defn) do
+      conn
+      |> assign(:defn, defn)
+      |> load_resource(action, defn, params[:id])
+      |> handle_plugs(action, defn)
+      |> handle_before_filter(action, defn, params)
+      |> handle_custom_actions(action, defn, params)
+    else
+      conn
+      |> put_layout(false)
+      |> render(ExAdmin.ErrorView, "403.html")
+      |> halt
+    end
   end
 
   defp scrub_params(conn, required_key, action) when action in [:create, :update] do
@@ -39,7 +48,10 @@ defmodule ExAdmin.AdminResourceController do
   end
   defp load_resource(conn, action, defn, resource_id) do
     model = defn.__struct__
-    resource = model.run_query(repo, defn, action, resource_id)
+    query = model.run_query(repo, defn, action, resource_id)
+    resource =
+    Authorization.authorize_query(defn, conn, query, action, resource_id)
+    |> ExAdmin.Query.execute_query(repo, action, resource_id)
 
     if resource == nil do
       raise Phoenix.Router.NoRouteError, conn: conn, router: __MODULE__
@@ -64,45 +76,51 @@ defmodule ExAdmin.AdminResourceController do
   end
 
   def handle_before_filter(conn, action, defn, params) do
-    case defn.controller_filters[:before_filter] do
-      nil ->
-        conn
-      {name, opts} ->
-        filter = cond do
-          opts[:only] ->
-            if action in opts[:only], do: true, else: false
-          opts[:except] ->
-            if not action in opts[:except], do: true, else: false
-          true -> true
-        end
-        if filter, do: apply(defn.__struct__, name, [conn, params]), else: conn
-    end
+    _handle_before_filter(conn, action, defn, params, defn.controller_filters[:before_filter])
   end
 
-  def handle_after_filter(conn, action, defn, params, resource) do
-    case defn.controller_filters[:after_filter] do
-      nil ->
-        {conn, params, resource}
-      {name, opts} ->
-        filter = cond do
-          opts[:only] ->
-            if action in opts[:only], do: true, else: false
-          opts[:except] ->
-            if not action in opts[:except], do: true, else: false
-          true -> true
-        end
-        if filter do
-          case apply(defn.__struct__, name, [conn, params, resource, action]) do
-            {_, _, _} = tuple -> tuple
-            %Plug.Conn{} = conn -> {conn, params, resource}
-            error ->
-              raise ExAdmin.RuntimeError, message: "invalid after_filter return: #{inspect error}"
-          end
-        else
-          {conn, params, resource}
-        end
+  def _handle_before_filter(conn, action, defn, params, [{name, opts} | t]) do
+    filter = cond do
+      opts[:only] ->
+        if action in opts[:only], do: true, else: false
+      opts[:except] ->
+        if not action in opts[:except], do: true, else: false
+      true -> true
     end
+    if filter do
+      apply(defn.__struct__, name, [conn, params])
+    else
+      conn
+    end
+    |> _handle_before_filter(action, defn, params, t)
   end
+  def _handle_before_filter(conn, _action, _defn, _params, _), do: conn
+
+  def handle_after_filter(conn, action, defn, params, resource) do
+    _handle_after_filter({conn, params, resource}, action, defn, defn.controller_filters[:after_filter])
+  end
+
+  def _handle_after_filter({conn, params, resource}, action, defn, [{name, opts} | t]) do
+    filter = cond do
+      opts[:only] ->
+        if action in opts[:only], do: true, else: false
+      opts[:except] ->
+        if not action in opts[:except], do: true, else: false
+      true -> true
+    end
+    if filter do
+      case apply(defn.__struct__, name, [conn, params, resource, action]) do
+        {_, _, _} = tuple -> tuple
+        %Plug.Conn{} = conn -> {conn, params, resource}
+        error ->
+          raise ExAdmin.RuntimeError, message: "invalid after_filter return: #{inspect error}"
+      end
+    else
+      {conn, params, resource}
+    end
+    |> _handle_after_filter(action, defn, t)
+  end
+  def _handle_after_filter(args, _action, _defn, _), do: args
 
   defp handle_plugs(conn, :nested, _defn), do: conn
   defp handle_plugs(conn, _action, defn) do
@@ -129,7 +147,11 @@ defmodule ExAdmin.AdminResourceController do
 
     page = case conn.assigns[:page] do
       nil ->
-        model.run_query(repo, defn, :index, params |> Map.to_list)
+        id = params |> Map.to_list
+        query = model.run_query(repo, defn, :index, id)
+        Authorization.authorize_query(defn, conn, query, :index, id)
+        |> ExAdmin.Query.execute_query(repo, :index, id)
+
       page ->
         page
     end
@@ -192,8 +214,11 @@ defmodule ExAdmin.AdminResourceController do
     end
   end
 
-  defp handle_changeset_error(conn, changeset, params) do
+  defp handle_changeset_error(conn, defn, changeset, params) do
     conn = put_flash(conn, :inline_error, changeset.errors)
+    |> Plug.Conn.assign(:changeset, changeset)
+    |> Plug.Conn.assign(:ea_required,
+       defn.resource_model.changeset(conn.assigns.resource).required)
     contents = do_form_view(conn, ExAdmin.Changeset.get_data(changeset), params)
     render(conn, "admin.html", html: contents, filters: nil)
   end
@@ -207,7 +232,7 @@ defmodule ExAdmin.AdminResourceController do
 
     case ExAdmin.Repo.insert(changeset) do
       {:error, changeset} ->
-        conn |> handle_changeset_error(changeset, params)
+        conn |> handle_changeset_error(defn, changeset, params)
       resource ->
         {conn, _, resource} = handle_after_filter(conn, :create, defn, params, resource)
         put_flash(conn, :notice, "#{base_name model} was successfully created.")
@@ -224,7 +249,7 @@ defmodule ExAdmin.AdminResourceController do
 
     case ExAdmin.Repo.update(changeset) do
       {:error, changeset} ->
-        conn |> handle_changeset_error(changeset, params)
+        conn |> handle_changeset_error(defn, changeset, params)
       resource ->
         {conn, _, resource} = handle_after_filter(conn, :update, defn, params, resource)
         put_flash(conn, :notice, "#{base_name model} was successfully updated")
@@ -291,7 +316,10 @@ defmodule ExAdmin.AdminResourceController do
   def csv(conn, defn, params) do
     model = defn.__struct__
 
-    csv = case model.run_query(repo, defn, :csv) do
+    query = model.run_query(repo, defn, :csv)
+    csv = Authorization.authorize_query(defn, conn, query, :csv, nil)
+    |> ExAdmin.Query.execute_query(repo, :csv, nil)
+    |> case  do
       [] -> []
       [resource | resources] ->
         ExAdmin.View.Adapter.build_csv(resource, resources)
@@ -308,12 +336,21 @@ defmodule ExAdmin.AdminResourceController do
   def nested(conn, defn, params) do
     model = defn.__struct__
 
+    resource = case conn.assigns.resource do
+      [res] -> res
+      other -> other
+    end
     items = apply(model, :get_blocks, [conn, defn.resource_model.__struct__, params])
     block = deep_find(items, String.to_atom(params[:field_name]))
 
-    resources = block[:opts][:collection].(conn, defn.resource_model.__struct__)
+    resources = case block[:opts][:collection] do
+      list when is_list(list) ->
+        list
+      fun when is_function(fun) ->
+        fun.(conn, defn.resource_model.__struct__)
+    end
 
-    contents = apply(model, :ajax_view, [conn, params, resources, block])
+    contents = apply(model, :ajax_view, [conn, params, resource, resources, block])
 
     send_resp(conn, conn.status || 200, "text/javascript", contents)
   end
