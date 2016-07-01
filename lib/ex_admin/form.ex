@@ -869,6 +869,10 @@ defmodule ExAdmin.Form do
     Xain.textarea(value, options)
   end
 
+  def build_control(:map, resource, opts, model_name, field_name, ext_name) do
+    build_control(:text, resource, opts, model_name, field_name, ext_name)
+  end
+
   def build_control({:array, _} = type, resource, opts, model_name, field_name, ext_name) do
     value = Map.get(resource, field_name, []) |> escape_value
     value = cond do
