@@ -582,10 +582,18 @@ defmodule ExAdmin.Form do
       handle_prompt(field_name, item)
       for item <- collection do
         {value, name} = case item do
-          {value, name} -> {value, name}
+          {value, name} -> {to_string(value), name}
           other -> {other, other}
         end
-        selected = if Map.get(resource, field_name) == value,
+
+        res_value = Map.get(resource, field_name)
+        res_value = cond do
+          is_bitstring(res_value) -> res_value
+          is_list(res_value) -> hd(res_value) |> to_string
+          is_atom(res_value) -> res_value |> to_string
+        end
+
+        selected = if value == res_value,
           do: [selected: :selected], else: []
         option(name, [value: value] ++ selected)
       end
@@ -733,7 +741,6 @@ defmodule ExAdmin.Form do
   """
   def build_item(conn, %{type: :inputs, name: name, opts: %{collection: collection} = opts},
       resource, model_name, errors) when is_atom(name) do
-
     # IO.puts "build_item 6: #{inspect name}"
     collection = if is_function(collection), do: collection.(conn, resource), else: collection
     errors = get_errors(errors, name)
@@ -820,6 +827,26 @@ defmodule ExAdmin.Form do
     |> Map.delete(:display)
     |> Map.to_list
     Xain.textarea value, options
+    build_errors(errors)
+  end
+
+  def build_control({:array, _} = type, resource, opts, model_name, field_name, ext_name, errors) do
+    value = Map.get(resource, field_name, []) |> escape_value
+    value = cond do
+      is_list(value)   -> value |> Enum.join(", ")
+      nil              -> ""
+      true             -> value
+    end
+
+    Map.put_new(opts, :type, :text)
+    |> Map.put(:class, "form-control")
+    |> Map.put_new(:maxlength, "255")
+    |> Map.put_new(:name, "#{model_name}[#{field_name}]")
+    |> Map.put_new(:id, ext_name)
+    |> Map.put_new(:value, value)
+    |> Map.delete(:display)
+    |> Map.to_list
+    |> Xain.input
     build_errors(errors)
   end
 
@@ -1057,8 +1084,12 @@ defmodule ExAdmin.Form do
 
   def escape_value(nil), do: nil
   def escape_value(value) when is_map(value), do: value
+  def escape_value(values) when is_list(values) do
+    for value <- values, do: escape_value(value)
+  end
   def escape_value(value) do
-    Phoenix.HTML.html_escape(value) |> elem(1)
+    {:safe, safe_value} = Phoenix.HTML.html_escape(value)
+    safe_value
   end
 
   @doc false
