@@ -871,7 +871,7 @@ defmodule ExAdmin.Form do
   end
 
   def build_control(:map, resource, opts, model_name, field_name, ext_name) do
-    value = with {:ok, value} <- Map.get(resource, field_name, "") |> JSX.encode,
+    value = with {:ok, value} <- (Map.get(resource, field_name) || %{}) |> JSX.encode,
                  {:ok, value} <- value |> JSX.prettify, do: value |> escape_value
     options = opts
     |> Map.put(:class, "form-control")
